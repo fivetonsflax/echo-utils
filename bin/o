@@ -1,0 +1,87 @@
+#!/usr/local/bin/perl -T
+
+# ohyeah -- an 'o' replacement
+#   by Ben Rosengart 2007-05-10
+# inspired by Kevin Krooss's "newo.sh"
+
+use warnings;
+use strict;
+
+my $debug = 1;
+
+# field widths for final output
+my $c =  2; # column separator -- hardcoded later
+my $u =  8; # userid
+my $g = 20; # gcos (real name)
+my $i =  6; # idle time -- accommodate hhh:mm (too lazy to compute days)
+my $h = (80 - ($u + $c + $g + $c + $i + $c)); # handle;
+                                              # assume an 80-column terminal
+# clean the PATH since we're running setuid
+delete @ENV{'IFS', 'CDPATH', 'ENV', 'BASH_ENV'};
+$ENV{PATH} = '/usr/bin:/bin';
+$ENV{LESSSECURE} = 1;
+
+# "ruser" instead of "user" because caucus always runs as user "echo"
+open(my $ps, "ps -a -o ruser -o tty -o comm|") || die "$!";
+
+my %users;
+while (<$ps>) {
+	chomp;
+	my ($user, $tty, $comm)  = split(' ', $_, 3);
+	next unless ($comm =~ /caucus_x/);
+
+	# get the Caucus handle.  this is the part that needs privileges.
+	my $handle;
+	my ($register) = </echo/USER*/${user}/register>; # list context important,
+                                                     # please don't ask why
+	if (open(my $reg, "$register")) {
+		$handle = <$reg>;
+		$handle =~ s/(.*)\(.*\)/$1/;  # format is "handle (userid)"; keep handle
+		$handle =~ s/[[:^ascii:]]//g;
+		chomp $handle;
+		close $reg;
+	}
+	else {
+		# might as well soldier on
+		warn "failed to open register file for $user: $!\n";
+		$handle = "";
+	}
+
+	my $gcos = (getpwnam($user))[6];
+
+	# current time minus the atime on the tty file
+	my $idle = (time() - (stat("/dev/${tty}"))[8]);
+
+	# where multiple Caucus processes exist for the same user,
+	# use the one with the shortest idle time.
+	unless ( exists $users{$user} && ($users{$user}->[1] < $idle) ) {
+		$users{$user} = [ $user, $idle, $gcos, $handle ];
+	}
+}
+
+#open(my $less, '|less -d -E -P"Press the ENTER key to continue..."') || die "$!";
+open(my $less, '|less -E') or die "$!";
+print $less "\n";
+print $less sprintf("%-${u}.${u}s  %${i}.${i}s  %-${g}.${g}s  %-.${h}s\n",
+                      "USERID", "IDLE", "NAME", "CAUCUS HANDLE");
+print $less sprintf("%-${u}.${u}s  %${i}.${i}s  %-${g}.${g}s  %-.${h}s\n",
+                      "------", "----", "----", "-------------");
+
+# people are used to seeing this sorted by real-name
+foreach (sort { $a->[2] cmp $b->[2] } values %users) {
+	my $idle = ($_->[1] / 60); # convert to minutes
+	if ($idle > 59) {
+		my $ih = $idle / 60; # pass the idle hours, please
+		my $im = $idle % 60;
+		$idle = sprintf("%d:%02d", $ih, $im);
+	}
+	else {
+		$idle = sprintf("%d", $idle);
+		$idle =~ s/^0$//;  # emulate w(1) by blanking out idle time of zero
+	}
+	print $less sprintf("%-${u}.${u}s  %${i}.${i}s  %-${g}.${g}s  %-.${h}s\n",
+	                    $_->[0], $idle, $_->[2], $_->[3]);
+}
+close $less;
+
+exit 0;
