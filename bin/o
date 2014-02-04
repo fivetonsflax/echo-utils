@@ -60,7 +60,7 @@ while (<$ps>) {
 }
 
 #open(my $less, '|less -d -E -P"Press the ENTER key to continue..."') || die "$!";
-open(my $less, '|less -E') or die "$!";
+open(my $less, '|less -FE') or die "$!";
 print $less "\n";
 print $less sprintf("%-${u}.${u}s  %${i}.${i}s  %-${g}.${g}s  %-.${h}s\n",
                       "USERID", "IDLE", "NAME", "CAUCUS HANDLE");
